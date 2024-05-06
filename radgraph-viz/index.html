@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+      }
+
+      nav {
+        line-height: 45px;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+        font-size: 16px;
+        position: fixed;
+        width: 100%;
+        z-index: 10;
+        background-color: white;
+      }
+
+      nav button {
+        font-size: 14px;
+      }
+
+      p, strong, button, h3, span, nav, footer {
+        font-family: monospace;
+      }
+
+      main {
+        display: flex;
+        flex-direction: row;
+      }
+
+      .sidebar {
+        width: 499px;
+        border-right: 1px solid rgba(0, 0, 0, 0.5);
+        font-size: 14px;
+        position: fixed;
+        height: calc(100% - 46px);
+        top: 46px;
+        overflow-y: scroll;
+      }
+
+      .sidebar-cell {
+        padding: 10px 20px;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+      }
+
+      .main {
+        width: calc(80%);
+        padding: 20px;
+        /* margin-top: 20px; */
+      }
+
+      .legend {
+        padding: 0 20px;
+        display: flex;
+        flex-direction: row;
+        line-height: 45px;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+      }
+
+      .legend-holder {
+        margin-top: 7px;
+        margin-left: 10px;
+      }
+
+      footer {
+        line-height: 45px;
+        font-size: 16px;
+        border-top: 1px solid rgba(0, 0, 0, 0.5);
+        text-align: center;
+      }
+
+      #pred-answers {
+        list-style: none;
+        padding-left: 0;
+      }
+
+      #pred-answers li {
+        padding: 5px;
+      }
+
+      #pred-answers li:hover {
+        background-color: rgba(240, 240, 240, 0.8);
+      }
+
+      #pred-answers li.correct span {
+        font-weight: bold;
+      }
+
+      #pred-answers li.correct span + span {
+        color: red;
+      }
+
+      #pred-answers li span:first-child {
+        margin-right: 20px;
+        color: blue;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <strong style="margin-left: 10px">Radgraph Visualizer</strong>
+      |
+      File Name: <span id="file-name"></span>
+      |
+      <span id="example-id"></span> out of <span id="num-examples"></span>
+      |
+      <button id="prev">previous</button>
+      <button id="next">next</button>
+      |
+      <form id="jump-form" style="display: inline">
+        <input id="jump-input" name="id" type="number" placeholder="Jump to ID..." />
+        <button>Jump</button>
+      </form>
+      <!-- |
+      <button id="highlight-diff">highlight difference</button>
+      |
+      <button id="toggle-diff">toggle no difference only</button> -->
+    </nav>
+
+    <main>
+
+      <div class="main">
+        <div class="legend">
+          <strong>Node Colors:</strong>
+          <div class="legend-holder" id="gt-node-colors"></div>
+        </div>
+
+        <div class="legend">
+          <strong>Edge Colors:</strong>
+          <div class="legend-holder" id="gt-edge-colors"></div>
+        </div>
+        
+        <h4> Ground Truth Graph </h4>
+        <div id="graph_gt"></div>
+      </div>
+
+      <div class="main">
+        <div class="legend">
+          <strong>Node Colors:</strong>
+          <div class="legend-holder" id="pred-node-colors"></div>
+        </div>
+
+        <div class="legend">
+          <strong>Edge Colors:</strong>
+          <div class="legend-holder" id="pred-edge-colors"></div>
+        </div>
+        
+        <h4> Predicted Graph </h4>
+        <div id="graph_pred"></div>
+
+      </div>
+      
+    </main>
+
+    <script type="module">
+      // import * as d3 from "./js/d3.v7.min.js";
+      import * as d3 from "https://cdn.skypack.dev/d3@7"
+      const $div_gt = $("#graph_gt");
+      const $div_pred = $("#graph_pred");
+
+      const width = $(document).width() - 480;
+      const height = 1400;
+
+      let examples = [];
+
+      let show_steiner_tree = false;
+      let highlight_steiner_tree = false;
+
+      const url_params = new URLSearchParams(window.location.search);
+      let example_id = parseInt(url_params.get("id") || 0);
+
+      $(document).ready(function () {
+        $.getJSON("/data/dp_vis_test.json", (data) => {
+          examples = data;
+          $("#num-examples").text(data.length - 1);
+          refresh();
+        });
+
+        $("#prev").click(function () {
+          if (example_id > 0) {
+            example_id -= 1;
+            window.location.replace(`index.html?id=${example_id}`);
+          }
+        });
+
+        $("#next").click(function () {
+          if (example_id < examples.length - 1) {
+            example_id += 1;
+            window.location.replace(`index.html?id=${example_id}`);
+          }
+        });
+
+        // $("#highlight-steiner-tree").click(function () {
+        //   highlight_steiner_tree = !highlight_steiner_tree;
+        //   refresh();
+        // });
+
+        // $("#toggle-steiner-tree").click(function () {
+        //   show_steiner_tree = !show_steiner_tree;
+        //   refresh();
+        // });
+      });
+
+      function refresh() {
+        if (example_id < examples.length) {
+          const example = examples[example_id];
+          $("#example-id").text(example_id);
+          load_example(example);
+        } else {
+          alert(`Invalid example ID ${example_id}. You can only choose between 0 and ${examples.length - 1}`);
+        }
+      }
+
+      function load_example(example) {
+        $("#file-name").text(example["file_name"]);
+
+        // Context
+        $("#context").text(example["context"]);
+
+        // Question
+        $("#question").text(example["question"]);
+
+        // Answer
+        $("#answer").text(example["answer"]);
+
+        // Query
+        // $("#query").html(example["query"].split("\n").filter(l => l.indexOf("rel ") == 0).map(r => `<p>${r}</p>`));
+
+        // Predicted nodes
+        // $("#pred-answers").html(example["pred_answers"].map(pred_answer => {
+        //   let [probability, [node_id]] = pred_answer;
+        //   let node_id_str = `_${node_id}`;
+        //   let source_nodes = example["graph"]["nodes"];
+        //   for (let curr_node_id in source_nodes) {
+        //     if (curr_node_id.indexOf(node_id_str) + node_id_str.length == curr_node_id.length) {
+        //       let text = source_nodes[curr_node_id]["text"];
+        //       let item_class = example["answer_id"] == node_id ? " class=\"correct\"" : "";
+        //       return `<li${item_class}><span class="pred-answer-prob">${probability.toFixed(4)}</span><span class="pred-answer-text">${text}</span></li>`;
+        //     }
+        //   }
+        // }));
+
+        // Deal with graph
+        // let graph = create_graph(example["graph"], example["pred_answers"]);
+        // let graph = create_graph(example["graph"], example["pred_answers"]);
+        let graph_gt = create_graph(example["graph_gt"], 'gt');
+        let graph_pred = create_graph(example["graph_pred"], 'pred');
+
+        $div_gt.html(graph_gt);
+        $div_pred.html(graph_pred);
+      }
+
+      function drag(simulation) {
+        function dragstarted(event, d) {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          d.fx = d.x;
+          d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+          d.fx = event.x;
+          d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+          if (!event.active) simulation.alphaTarget(0);
+          d.fx = null;
+          d.fy = null;
+        }
+
+        return d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended);
+      }
+
+      function create_graph(source, tp) {
+        const [data, data_links, data_nodes, source_nodes, node_types, node_color, edge_types, edge_color] = source_to_nodes(source)
+
+        if (tp == 'gt') { 
+          $("#gt-node-colors").html(swatches(node_color));
+          $("#gt-edge-colors").html(swatches(edge_color));
+        } else {
+          $("#pred-node-colors").html(swatches(node_color));
+          $("#pred-edge-colors").html(swatches(edge_color));
+        }
+       
+
+        const links = data.data_links.map(d => Object.create(d));
+        const nodes = data.data_nodes.map(d => Object.create(d));
+
+        const simulation = d3.forceSimulation(nodes)
+            .force("link", d3.forceLink(links).id(d => d.id))
+            .force("charge", d3.forceManyBody().strength(-400))
+            .force("x", d3.forceX())
+            .force("y", d3.forceY());
+
+        const svg = d3.create("svg")
+            .attr("viewBox", [-width / 2, -height / 2, width, height])
+            .style("font", "12px sans-serif");
+
+        // Per-type markers, as they don't inherit styles.
+        svg.append("defs").selectAll("marker")
+          .data(edge_types)
+          .join("marker")
+            .attr("id", d => `arrow-${d}`)
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 15)
+            .attr("refY", -0.5)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+          .append("path")
+            .attr("fill", edge_color)
+            .attr("d", "M0,-5L10,0L0,5");
+
+        const link = svg.append("g")
+            .attr("fill", "none")
+            .attr("stroke-width", 1.5)
+          .selectAll("path")
+          .data(links)
+          .join("path")
+            .attr("stroke", d => {
+              var c = d3.color(edge_color(d.type));
+              var opacity = 1;
+              if (d["in_st_graph"] == 0 && highlight_steiner_tree) {
+                opacity = 0.1;
+              }
+              c = c.copy({ opacity: opacity });
+              return c
+            })
+            .attr("marker-end", d => {
+              return `url(${new URL(`#arrow-${d.type}`, location)})`
+            });
+
+        const node = svg.append("g")
+            .attr("fill", "currentColor")
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round")
+          .selectAll("g")
+          .data(nodes)
+          .join("g")
+            .call(drag(simulation));
+
+        node.append("circle")
+            .attr("stroke", d => {
+                return "white";
+            })
+            .attr("stroke-width", d => {
+              if (source_nodes[d.id]) {
+                return 3.0;
+              } else {
+                return 1.5;
+              }
+            })
+            .attr("r", d => {
+              if (source_nodes[d.id]) {
+                return 12;
+              } else {
+                return 8;
+              }
+            })
+            .attr("fill", d => {
+              if (source_nodes[d.id]) {
+                var opacity = 1
+                if (source_nodes[d.id]["in_st_graph"] == 0 && highlight_steiner_tree) {
+                  opacity = 0.1
+                }
+                var c = d3.color(node_color(source_nodes[d.id]["type"]));
+                c = c.copy({opacity: opacity});
+                return c
+              } else {
+                return node_color("other")
+              }
+            });
+
+        node.append("text")
+            .attr("x", 14)
+            .attr("y", "0.31em")
+            .text(d => {
+              if (source_nodes[d.id]) {
+                return d.id + '-' + source_nodes[d.id]["text"];
+              } else {
+                return d.id;
+              }
+            })
+            .attr("fill", d => {
+              let color = "black";
+              var opacity = 1;
+              let not_steiner = false;
+              if (source_nodes[d.id]) {
+                not_steiner = true;
+              }
+              if (not_steiner && source_nodes[d.id]["in_st_graph"] == 0 && highlight_steiner_tree) {
+                opacity = 0.1;
+              }
+
+              let c = d3.color(color);
+              c = c.copy({ opacity: opacity });
+              return c;
+            })
+          .clone(true).lower()
+            .attr("fill", "none")
+            .attr("stroke", "white")
+            .attr("stroke-width", 3);
+
+        simulation.on("tick", () => {
+          link.attr("d", link_arc);
+          node.attr("transform", d => `translate(${d.x},${d.y})`);
+        });
+
+        return svg.node();
+      }
+
+      function link_arc(d) {
+        const r = Math.hypot(d.target.x - d.source.x, d.target.y - d.source.y);
+        return `
+          M${d.source.x},${d.source.y}
+          A${r},${r} 0 0,1 ${d.target.x},${d.target.y}
+        `;
+      }
+
+      function source_to_nodes(source) {
+        const height = 1200;
+        const source_nodes = source.nodes;
+        const source_links = source.edges;
+
+        // Obtain data
+        const data_nodes = [];
+        for (let node_id in source_nodes) {
+          if (!show_steiner_tree || source_nodes[node_id]["in_st_graph"]) {
+            data_nodes.push({
+              "id": node_id,
+              "text": source_nodes[node_id]["text"],
+              "type": source_nodes[node_id]["type"],
+              "in_st_graph": source_nodes[node_id]["in_st_graph"],
+            });
+          }
+        }
+
+        const data_links = Array.from(new Set(source_links.map(d => {
+          if (!show_steiner_tree || d[3]) {
+            return {
+              "source": d[0],
+              "target": d[1],
+              "type": d[2],
+              "in_st_graph": d[3],
+            }
+          } else {
+            return null;
+          }
+        }).filter(d => d != null)))
+
+        const data = ({
+          data_nodes,
+          data_links,
+        })
+
+        // Customize data style
+        const edge_types = Array.from(new Set(data_links.map(d => d.type)))
+        const edge_color = d3.scaleOrdinal(edge_types, d3.schemeCategory10)
+
+        const nty = [];
+        for (var n in source_nodes) {
+          nty.push(source_nodes[n]["type"]);
+        }
+        nty.push("other");
+
+        const node_types = Array.from(new Set(nty));
+        const node_color = d3.scaleOrdinal(node_types, d3.schemeSet2);
+
+        // const answer_id = Object.values(source.answer_ids);
+        // const question_ids = source.question_ids
+
+        return [data, data_links, data_nodes, source_nodes, node_types, node_color, edge_types, edge_color]
+      }
+
+      function swatches(color, {
+        columns = null,
+        format,
+        unknown: formatUnknown,
+        swatchSize = 15,
+        swatchWidth = swatchSize,
+        swatchHeight = swatchSize,
+        marginLeft = 0
+      } = {}) {
+        const id = `-swatches-${Math.random().toString(16).slice(2)}`;
+        const unknown = formatUnknown == null ? undefined : color.unknown();
+        const unknowns = unknown == null || unknown === d3.scaleImplicit ? [] : [unknown];
+        const domain = color.domain().concat(unknowns);
+        if (format === undefined) format = x => x === unknown ? formatUnknown : x;
+
+        function entity(character) {
+          return `&#${character.charCodeAt(0).toString()};`;
+        }
+
+        if (columns !== null) return `<div style="display: flex; align-items: center; margin-left: ${+marginLeft}px; min-height: 33px; font: 10px sans-serif;">
+        <style>
+
+      .${id}-item {
+        break-inside: avoid;
+        display: flex;
+        align-items: center;
+        padding-bottom: 1px;
+      }
+
+      .${id}-label {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: calc(100% - ${+swatchWidth}px - 0.5em);
+      }
+
+      .${id}-swatch {
+        width: ${+swatchWidth}px;
+        height: ${+swatchHeight}px;
+        margin: 0 0.5em 0 0;
+      }
+
+        </style>
+        <div style=${{width: "100%", columns}}>${domain.map(value => {
+          const label = `${format(value)}`;
+          return `<div class=${id}-item>
+            <div class=${id}-swatch style=${{background: color(value)}}></div>
+            <div class=${id}-label title=${label}>${label}</div>
+          </div>`;
+        }).join(",")}
+        </div>
+      </div>`;
+
+        return `<div style="display: flex; align-items: center; min-height: 33px; margin-left: ${+marginLeft}px; font: 10px sans-serif;">
+        <style>
+
+      .${id} {
+        display: inline-flex;
+        align-items: center;
+        margin-right: 1em;
+      }
+
+      .${id}::before {
+        content: "";
+        width: ${+swatchWidth}px;
+        height: ${+swatchHeight}px;
+        margin-right: 0.5em;
+        background: var(--color);
+      }
+
+        </style>
+        <div>${domain.map(value => `<span class="${id}" style="--color: ${color(value)}">${format(value)}</span>`).join("")}</div>`;
+      }
+    </script>
+  </body>
+</html>
